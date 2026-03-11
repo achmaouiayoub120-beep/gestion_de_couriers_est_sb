@@ -1,6 +1,0 @@
-{
-  "version": 3,
-  "sources": [],
-  "sections": [
-    {"offset": {"line": 4, "column": 0}, "map": {"version":3,"sources":["file:///C:/Users/ayoub/OneDrive/Bureau/PFE2026/internal-mail-management-main/internal-mail-management-main/app/page.tsx"],"sourcesContent":["\"use client\"\n\nimport { useEffect } from \"react\"\nimport { useRouter } from \"next/navigation\"\nimport { useAuth } from \"@/lib/auth-context\"\n\nexport default function Home() {\n  const router = useRouter()\n  const { isAuthenticated } = useAuth()\n\n  useEffect(() => {\n    if (isAuthenticated) {\n      router.push(\"/dashboard\")\n    } else {\n      router.push(\"/login\")\n    }\n  }, [isAuthenticated, router])\n\n  return null\n}\n"],"names":[],"mappings":";;;;AAEA;AACA;AACA;;AAJA;;;;AAMe,SAAS;;IACtB,MAAM,SAAS,IAAA,sYAAS;IACxB,MAAM,EAAE,eAAe,EAAE,GAAG,IAAA,0PAAO;IAEnC,IAAA,8ZAAS;0BAAC;YACR,IAAI,iBAAiB;gBACnB,OAAO,IAAI,CAAC;YACd,OAAO;gBACL,OAAO,IAAI,CAAC;YACd;QACF;yBAAG;QAAC;QAAiB;KAAO;IAE5B,OAAO;AACT;GAbwB;;QACP,sYAAS;QACI,0PAAO;;;KAFb"}}]
-}
