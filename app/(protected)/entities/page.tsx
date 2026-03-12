@@ -1,11 +1,11 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, useCallback } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { storage } from "@/lib/storage"
-import type { Entity } from "@/lib/types"
-import { Plus, Edit2, Trash2 } from "lucide-react"
+import { api } from "@/lib/api"
+import type { Entity, User } from "@/lib/types"
+import { Plus, Edit2, Trash2, Loader2 } from "lucide-react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
@@ -13,6 +13,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 
 export default function EntitiesPage() {
   const [entities, setEntities] = useState<Entity[]>([])
+  const [users, setUsers] = useState<User[]>([])
+  const [isLoading, setIsLoading] = useState(true)
   const [isOpen, setIsOpen] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [formData, setFormData] = useState({
@@ -25,20 +27,33 @@ export default function EntitiesPage() {
     code: "",
   })
 
-  const users = storage.getUsers()
-  const allEntities = storage.getEntities()
+  const loadData = useCallback(async () => {
+    setIsLoading(true)
+    try {
+      const [entitiesRes, usersRes] = await Promise.all([
+        api.getEntities(),
+        api.getUsers(),
+      ])
+      setEntities(entitiesRes)
+      setUsers(usersRes.filter(u => u.role === 'CHEF' || u.role === 'SUPER_ADMIN' || u.role === 'ADMIN'))
+    } catch (error) {
+      console.error("Erreur chargement entités:", error)
+    } finally {
+      setIsLoading(false)
+    }
+  }, [])
 
   useEffect(() => {
-    setEntities(allEntities)
-  }, [])
+    loadData()
+  }, [loadData])
 
   const handleOpenDialog = (entity?: Entity) => {
     if (entity) {
       setFormData({
-        label: entity.label,
-        description: entity.description,
-        parentEntityId: entity.parentEntityId || "",
-        chefId: entity.chefId || "",
+        label: entity.label || "",
+        description: entity.description || "",
+        parentEntityId: entity.parentEntityId || "none",
+        chefId: entity.chefId || "none",
         email: entity.email || "",
         phone: entity.phone || "",
         code: entity.code || "",
@@ -48,8 +63,8 @@ export default function EntitiesPage() {
       setFormData({
         label: "",
         description: "",
-        parentEntityId: "",
-        chefId: "",
+        parentEntityId: "none",
+        chefId: "none",
         email: "",
         phone: "",
         code: "",
@@ -59,31 +74,40 @@ export default function EntitiesPage() {
     setIsOpen(true)
   }
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!formData.label) {
       alert("Le libellé est obligatoire")
       return
     }
 
-    if (editingId) {
-      storage.updateEntity(editingId, formData)
-    } else {
-      const newEntity: Entity = {
-        id: Date.now().toString(),
+    try {
+      const payload = {
         ...formData,
-        createdAt: new Date(),
+        parentEntityId: formData.parentEntityId === 'none' ? undefined : formData.parentEntityId,
+        chefId: formData.chefId === 'none' ? undefined : formData.chefId,
       }
-      storage.addEntity(newEntity)
-    }
 
-    setEntities(storage.getEntities())
-    setIsOpen(false)
+      if (editingId) {
+        await api.updateEntity(editingId, payload)
+      } else {
+        await api.createEntity(payload)
+      }
+      
+      loadData()
+      setIsOpen(false)
+    } catch (error: any) {
+      alert(error.message || "Erreur lors de l'enregistrement")
+    }
   }
 
-  const handleDelete = (id: string) => {
+  const handleDelete = async (id: string) => {
     if (confirm("Êtes-vous sûr de vouloir supprimer cette entité ?")) {
-      storage.deleteEntity(id)
-      setEntities(storage.getEntities())
+      try {
+        await api.deleteEntity(id)
+        loadData()
+      } catch (error: any) {
+        alert(error.message || "Erreur lors de la suppression")
+      }
     }
   }
 
@@ -137,7 +161,8 @@ export default function EntitiesPage() {
                     <SelectValue placeholder="Sélectionnez une entité parente" />
                   </SelectTrigger>
                   <SelectContent>
-                    {allEntities
+                    <SelectItem value="none">Aucune</SelectItem>
+                    {entities
                       .filter((e) => e.id !== editingId)
                       .map((entity) => (
                         <SelectItem key={entity.id} value={entity.id}>
@@ -154,6 +179,7 @@ export default function EntitiesPage() {
                     <SelectValue placeholder="Sélectionnez un chef" />
                   </SelectTrigger>
                   <SelectContent>
+                    <SelectItem value="none">Non assigné</SelectItem>
                     {users.map((user) => (
                       <SelectItem key={user.id} value={user.id}>
                         {user.name}
@@ -197,29 +223,38 @@ export default function EntitiesPage() {
           <CardTitle>Liste des Entités ({entities.length})</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="space-y-3">
-            {entities.map((entity) => (
-              <div key={entity.id} className="flex items-center justify-between p-4 border rounded-lg hover:bg-muted">
-                <div className="flex-1">
-                  <h3 className="font-semibold">{entity.label}</h3>
-                  <p className="text-sm text-muted-foreground">{entity.description}</p>
-                  <div className="flex gap-4 text-xs text-muted-foreground mt-2">
-                    {entity.code && <span>Code: {entity.code}</span>}
-                    {entity.email && <span>Email: {entity.email}</span>}
-                    {entity.chefId && <span>Chef: {getChefName(entity.chefId)}</span>}
+          {isLoading ? (
+            <div className="flex justify-center p-8">
+              <Loader2 className="w-8 h-8 animate-spin text-primary" />
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {entities.map((entity) => (
+                <div key={entity.id} className="flex items-center justify-between p-4 border rounded-lg hover:bg-muted">
+                  <div className="flex-1">
+                    <h3 className="font-semibold">{entity.label}</h3>
+                    <p className="text-sm text-muted-foreground">{entity.description}</p>
+                    <div className="flex gap-4 text-xs text-muted-foreground mt-2">
+                      {entity.code && <span>Code: {entity.code}</span>}
+                      {entity.email && <span>Email: {entity.email}</span>}
+                      {entity.chefId && <span>Chef: {getChefName(entity.chefId)}</span>}
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button variant="outline" size="sm" onClick={() => handleOpenDialog(entity)}>
+                      <Edit2 className="w-4 h-4" />
+                    </Button>
+                    <Button variant="outline" size="sm" onClick={() => handleDelete(entity.id)}>
+                      <Trash2 className="w-4 h-4 text-destructive" />
+                    </Button>
                   </div>
                 </div>
-                <div className="flex gap-2">
-                  <Button variant="outline" size="sm" onClick={() => handleOpenDialog(entity)}>
-                    <Edit2 className="w-4 h-4" />
-                  </Button>
-                  <Button variant="outline" size="sm" onClick={() => handleDelete(entity.id)}>
-                    <Trash2 className="w-4 h-4 text-destructive" />
-                  </Button>
-                </div>
-              </div>
-            ))}
-          </div>
+              ))}
+              {entities.length === 0 && (
+                <p className="text-center text-muted-foreground py-8">Aucune entité trouvée</p>
+              )}
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>

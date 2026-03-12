@@ -1,36 +1,58 @@
 "use client"
 
 import type React from "react"
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { storage } from "@/lib/storage"
+import { api } from "@/lib/api"
 import { useAuth } from "@/lib/auth-context"
-import type { Courrier, Attachment } from "@/lib/types"
+import type { Courier, Attachment, CourierType, Category, Entity } from "@/lib/types"
 import { CourierState, Priority } from "@/lib/types"
-import { Upload, X } from "lucide-react"
+import { Upload, X, Loader2 } from "lucide-react"
 
 export default function CreateCourrierPage() {
   const router = useRouter()
   const { user } = useAuth()
   const [formData, setFormData] = useState({
-    type: "",
-    category: "",
-    toEntity: "",
+    typeId: "",
+    categoryId: "",
+    toEntityId: "",
     subject: "",
     description: "",
     priority: Priority.NORMAL,
   })
+  
+  const [types, setTypes] = useState<CourierType[]>([])
+  const [categories, setCategories] = useState<Category[]>([])
+  const [entities, setEntities] = useState<Entity[]>([])
+  const [isLoadingData, setIsLoadingData] = useState(true)
+  
   const [attachments, setAttachments] = useState<Attachment[]>([])
   const [isSubmitting, setIsSubmitting] = useState(false)
 
-  const types = storage.getCourierTypes()
-  const categories = storage.getCategories()
-  const entities = storage.getEntities()
+  useEffect(() => {
+    const loadData = async () => {
+      try {
+        const [typesData, categoriesData, entitiesData] = await Promise.all([
+          api.getTypes(),
+          api.getCategories(),
+          api.getEntities(),
+        ])
+        setTypes(typesData)
+        setCategories(categoriesData)
+        setEntities(entitiesData)
+      } catch (error) {
+        console.error("Erreur lors du chargement des référentiels:", error)
+      } finally {
+        setIsLoadingData(false)
+      }
+    }
+    loadData()
+  }, [])
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target
@@ -66,59 +88,41 @@ export default function CreateCourrierPage() {
     setAttachments((prev) => prev.filter((a) => a.id !== id))
   }
 
-  const generateReference = () => {
-    const date = new Date()
-    const year = date.getFullYear()
-    const month = String(date.getMonth() + 1).padStart(2, "0")
-    const random = Math.random().toString(36).substring(2, 7).toUpperCase()
-    return `ESTSB-${year}${month}-${random}`
-  }
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setIsSubmitting(true)
 
     try {
-      if (!formData.type || !formData.category || !formData.toEntity || !formData.subject) {
+      if (!formData.typeId || !formData.categoryId || !formData.toEntityId || !formData.subject) {
         alert("Veuillez remplir tous les champs obligatoires")
         setIsSubmitting(false)
         return
       }
 
-      const newCourrier: Courrier = {
-        id: Date.now().toString(),
-        reference: generateReference(),
-        type: formData.type,
-        category: formData.category,
-        toEntity: formData.toEntity,
-        state: CourierState.NEW,
+      await api.createCourier({
         subject: formData.subject,
         description: formData.description,
-        priority: formData.priority as Priority,
-        createdBy: user?.id || "unknown",
-        createdAt: new Date(),
-        attachments,
-        history: [
-          {
-            state: CourierState.NEW,
-            changedBy: user?.id || "unknown",
-            changedAt: new Date(),
-          },
-        ],
-      }
-
-      storage.addCourrier(newCourrier)
-
-      // Auto-assign to chef if entity has one
-      const entity = entities.find((e) => e.id === formData.toEntity)
-      if (entity?.chefId) {
-        // Chef will automatically see it in their list
-      }
+        toEntityId: formData.toEntityId,
+        categoryId: formData.categoryId,
+        typeId: formData.typeId,
+        priority: formData.priority,
+      })
 
       router.push("/courriers")
+    } catch (error: any) {
+      console.error("Erreur creation courrier:", error)
+      alert(error.message || "Erreur lors de la création du courrier")
     } finally {
       setIsSubmitting(false)
     }
+  }
+
+  if (isLoadingData) {
+    return (
+      <div className="flex h-[80vh] items-center justify-center">
+        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+      </div>
+    )
   }
 
   return (
@@ -137,7 +141,7 @@ export default function CreateCourrierPage() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium mb-2">Type *</label>
-                <Select value={formData.type} onValueChange={(value) => handleSelectChange("type", value)}>
+                <Select value={formData.typeId} onValueChange={(value) => handleSelectChange("typeId", value)}>
                   <SelectTrigger>
                     <SelectValue placeholder="Sélectionnez un type" />
                   </SelectTrigger>
@@ -153,7 +157,7 @@ export default function CreateCourrierPage() {
 
               <div>
                 <label className="block text-sm font-medium mb-2">Catégorie *</label>
-                <Select value={formData.category} onValueChange={(value) => handleSelectChange("category", value)}>
+                <Select value={formData.categoryId} onValueChange={(value) => handleSelectChange("categoryId", value)}>
                   <SelectTrigger>
                     <SelectValue placeholder="Sélectionnez une catégorie" />
                   </SelectTrigger>
@@ -169,7 +173,7 @@ export default function CreateCourrierPage() {
 
               <div>
                 <label className="block text-sm font-medium mb-2">Destination (Entité) *</label>
-                <Select value={formData.toEntity} onValueChange={(value) => handleSelectChange("toEntity", value)}>
+                <Select value={formData.toEntityId} onValueChange={(value) => handleSelectChange("toEntityId", value)}>
                   <SelectTrigger>
                     <SelectValue placeholder="Sélectionnez une entité" />
                   </SelectTrigger>
@@ -207,6 +211,7 @@ export default function CreateCourrierPage() {
                 placeholder="Entrez le sujet du courrier"
                 value={formData.subject}
                 onChange={handleInputChange}
+                required
               />
             </div>
 
@@ -223,7 +228,7 @@ export default function CreateCourrierPage() {
           </CardContent>
         </Card>
 
-        {/* Attachments */}
+        {/* Attachments (Note: Actual file storage integration would be needed here for production) */}
         <Card>
           <CardHeader>
             <CardTitle>Pièces Jointes</CardTitle>
@@ -271,6 +276,7 @@ export default function CreateCourrierPage() {
             Annuler
           </Button>
           <Button type="submit" disabled={isSubmitting}>
+            {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             {isSubmitting ? "Création..." : "Créer le Courrier"}
           </Button>
         </div>

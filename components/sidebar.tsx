@@ -134,7 +134,7 @@ export function Sidebar() {
                     className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${
                       active
                         ? "bg-sidebar-primary text-sidebar-primary-foreground"
-                        : "text-sidebar-foreground hover:bg-sidebar-accent"
+                        : "text-sidebar-foreground hover:bg-primary/10 hover:text-primary"
                     }`}
                   >
                     <Icon className="w-5 h-5" />

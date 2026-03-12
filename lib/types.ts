@@ -12,11 +12,11 @@ export interface User {
 }
 
 export enum Role {
-  SUPER_ADMIN = "super_admin",
-  ADMIN = "admin",
-  CHEF = "chef",
-  AGENT = "agent",
-  AUDITOR = "auditor",
+  SUPER_ADMIN = "SUPER_ADMIN",
+  ADMIN = "ADMIN",
+  CHEF = "CHEF",
+  AGENT = "AGENT",
+  AUDITOR = "AUDITOR",
 }
 
 export interface Entity {
@@ -50,17 +50,17 @@ export interface Courier {
 }
 
 export enum CourierState {
-  NEW = "new",
-  IN_PROGRESS = "in_progress",
-  TREATED = "treated",
-  REJECTED = "rejected",
-  ARCHIVED = "archived",
+  NEW = "NEW",
+  IN_PROGRESS = "IN_PROGRESS",
+  TREATED = "TREATED",
+  REJECTED = "REJECTED",
+  ARCHIVED = "ARCHIVED",
 }
 
 export enum Priority {
-  NORMAL = "normal",
-  URGENT = "urgent",
-  VERY_URGENT = "very_urgent",
+  NORMAL = "NORMAL",
+  URGENT = "URGENT",
+  VERY_URGENT = "VERY_URGENT",
 }
 
 export interface Attachment {

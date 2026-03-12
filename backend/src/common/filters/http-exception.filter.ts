@@ -18,10 +18,20 @@ export class GlobalExceptionFilter implements ExceptionFilter {
         ? exception.getStatus()
         : HttpStatus.INTERNAL_SERVER_ERROR;
 
-    const message =
+    // Ignore favicon 404 noise
+    if (status === HttpStatus.NOT_FOUND && request.url.includes('favicon.ico')) {
+      return response.status(status).end();
+    }
+
+    let message =
       exception instanceof HttpException
         ? exception.getResponse()
         : 'Erreur interne du serveur';
+
+    // User-friendly message for Throttler/Rate-limit errors
+    if (exception && typeof exception === 'object' && exception.constructor.name === 'ThrottlerException') {
+      message = 'Trop de tentatives. Veuillez réessayer plus tard.';
+    }
 
     this.logger.error(`${request.method} ${request.url} → ${status}`, {
       exception: exception instanceof Error ? exception.message : String(exception),

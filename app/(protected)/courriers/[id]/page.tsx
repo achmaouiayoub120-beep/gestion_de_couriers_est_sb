@@ -1,50 +1,58 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, useCallback } from "react"
 import { useParams } from "next/navigation"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { storage } from "@/lib/storage"
-import type { Courrier } from "@/lib/types"
+import { api } from "@/lib/api"
+import type { Courier, Entity, User } from "@/lib/types"
 import { CourierState } from "@/lib/types"
-import { Download, ArrowLeft } from "lucide-react"
+import { Download, ArrowLeft, Loader2 } from "lucide-react"
 import Link from "next/link"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 
 export default function CourrierDetailPage() {
   const params = useParams()
   const id = params.id as string
-  const [courrier, setCourrier] = useState<Courrier | null>(null)
+  const [courrier, setCourrier] = useState<Courier | null>(null)
+  const [entities, setEntities] = useState<Entity[]>([])
+  const [users, setUsers] = useState<User[]>([])
+  const [isLoading, setIsLoading] = useState(true)
   const [isUpdating, setIsUpdating] = useState(false)
 
-  const entities = storage.getEntities()
-  const users = storage.getUsers()
-
-  useEffect(() => {
-    const c = storage.getCourrierById(id)
-    setCourrier(c || null)
+  const loadData = useCallback(async () => {
+    setIsLoading(true)
+    try {
+      const [courrierRes, entitiesRes, usersRes] = await Promise.all([
+        api.getCourierById(id),
+        api.getEntities(),
+        api.getUsers()
+      ])
+      setCourrier(courrierRes)
+      setEntities(entitiesRes)
+      setUsers(usersRes)
+    } catch (error) {
+      console.error("Erreur chargement détails courrier:", error)
+    } finally {
+      setIsLoading(false)
+    }
   }, [id])
 
-  const handleStateChange = (newState: string) => {
+  useEffect(() => {
+    loadData()
+  }, [loadData])
+
+  const handleStateChange = async (newState: string) => {
     if (!courrier) return
     setIsUpdating(true)
-
-    const updatedCourrier = {
-      ...courrier,
-      state: newState as CourierState,
-      history: [
-        ...courrier.history,
-        {
-          state: newState as CourierState,
-          changedBy: "current_user",
-          changedAt: new Date(),
-        },
-      ],
+    try {
+      await api.updateCourierState(id, newState)
+      await loadData() // Reload to get fresh history and state
+    } catch (error: any) {
+      alert(error.message || "Erreur lors de la mise à jour de l'état")
+    } finally {
+      setIsUpdating(false)
     }
-
-    storage.updateCourrier(id, updatedCourrier)
-    setCourrier(updatedCourrier)
-    setIsUpdating(false)
   }
 
   const getEntityLabel = (entityId?: string) => {
@@ -69,10 +77,21 @@ export default function CourrierDetailPage() {
     }
   }
 
-  if (!courrier) {
+  if (isLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
+        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+      </div>
+    )
+  }
+
+  if (!courrier) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-screen gap-4">
         <p className="text-muted-foreground">Courrier non trouvé</p>
+        <Link href="/courriers">
+          <Button variant="outline">Retour à la liste</Button>
+        </Link>
       </div>
     )
   }
@@ -125,7 +144,7 @@ export default function CourrierDetailPage() {
           </Card>
 
           {/* Pièces jointes */}
-          {courrier.attachments.length > 0 && (
+          {courrier.attachments && courrier.attachments.length > 0 && (
             <Card>
               <CardHeader>
                 <CardTitle>Pièces Jointes</CardTitle>
@@ -138,7 +157,7 @@ export default function CourrierDetailPage() {
                         <p className="text-sm font-medium">{attachment.name}</p>
                         <p className="text-xs text-muted-foreground">{(attachment.size / 1024).toFixed(2)} KB</p>
                       </div>
-                      <a href={attachment.url} download={attachment.name}>
+                      <a href={attachment.url} download={attachment.name} target="_blank" rel="noopener noreferrer">
                         <Button size="sm" variant="outline">
                           <Download className="w-4 h-4" />
                         </Button>
@@ -157,17 +176,22 @@ export default function CourrierDetailPage() {
             </CardHeader>
             <CardContent>
               <div className="space-y-3">
-                {courrier.history.map((entry, index) => (
-                  <div key={index} className="flex items-start gap-3 pb-3 border-b last:border-0">
-                    <div className={`px-3 py-1 rounded text-xs font-medium ${getStateColor(entry.state)}`}>
-                      {entry.state}
+                {courrier.history && courrier.history.length > 0 ? (
+                  courrier.history.sort((a,b) => new Date(b.changedAt).getTime() - new Date(a.changedAt).getTime()).map((entry, index) => (
+                    <div key={index} className="flex items-start gap-3 pb-3 border-b last:border-0">
+                      <div className={`px-3 py-1 rounded text-xs font-medium ${getStateColor(entry.state)}`}>
+                        {entry.state}
+                      </div>
+                      <div className="flex-1">
+                        <p className="text-xs text-muted-foreground">{new Date(entry.changedAt).toLocaleString()}</p>
+                        {entry.notes && <p className="text-sm mt-1">{entry.notes}</p>}
+                        <p className="text-xs text-muted-foreground italic">Par: {users.find(u => u.id === entry.changedBy)?.name || entry.changedBy}</p>
+                      </div>
                     </div>
-                    <div className="flex-1">
-                      <p className="text-xs text-muted-foreground">{new Date(entry.changedAt).toLocaleString()}</p>
-                      {entry.notes && <p className="text-sm mt-1">{entry.notes}</p>}
-                    </div>
-                  </div>
-                ))}
+                  ))
+                ) : (
+                  <p className="text-sm text-muted-foreground">Aucun historique disponible</p>
+                )}
               </div>
             </CardContent>
           </Card>
@@ -180,16 +204,17 @@ export default function CourrierDetailPage() {
               <CardTitle>État du Courrier</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div>
+              <div className="flex flex-col gap-2">
                 <span
-                  className={`inline-block px-4 py-2 rounded-full text-sm font-bold ${getStateColor(courrier.state)}`}
+                  className={`inline-block px-4 py-2 rounded-full text-sm font-bold w-fit ${getStateColor(courrier.state)}`}
                 >
                   {courrier.state}
                 </span>
+                {isUpdating && <div className="flex items-center gap-2 text-xs text-muted-foreground"><Loader2 className="w-3 h-3 animate-spin" /> Mise à jour...</div>}
               </div>
 
               {courrier.state !== CourierState.TREATED && (
-                <div>
+                <div className="space-y-2">
                   <label className="text-sm font-medium">Changer l'état</label>
                   <Select value={courrier.state} onValueChange={handleStateChange} disabled={isUpdating}>
                     <SelectTrigger>

@@ -19,6 +19,7 @@ import { HealthModule } from './health/health.module';
     ThrottlerModule.forRoot([{
       ttl: parseInt(process.env.THROTTLE_TTL || '60', 10) * 1000,
       limit: parseInt(process.env.THROTTLE_LIMIT || '100', 10),
+      skipIf: () => process.env.THROTTLE_SKIP === 'true',
     }]),
     PrismaModule,
     AuthModule,

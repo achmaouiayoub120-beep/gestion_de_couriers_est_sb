@@ -7,7 +7,7 @@ import { useAuth } from "@/lib/auth-context"
 import { Sidebar } from "@/components/sidebar"
 import { TopBar } from "@/components/top-bar"
 
-export default function DashboardLayout({
+export default function AppLayout({
   children,
 }: {
   children: React.ReactNode

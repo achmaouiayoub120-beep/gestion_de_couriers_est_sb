@@ -1,21 +1,27 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, useCallback } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { storage } from "@/lib/storage"
+import { api } from "@/lib/api"
 import { useAuth } from "@/lib/auth-context"
-import type { Courrier } from "@/lib/types"
+import type { Courier, Entity, CourierType, Category } from "@/lib/types"
 import { CourierState, Priority, Role } from "@/lib/types"
-import { Plus, Eye, Edit2, Trash2, Download, Calendar } from "lucide-react"
+import { Plus, Eye, Edit2, Trash2, Download, Calendar, Loader2 } from "lucide-react"
 import Link from "next/link"
 
 export default function CourriersPage() {
   const { user } = useAuth()
-  const [courriers, setCourriers] = useState<Courrier[]>([])
-  const [filteredCourriers, setFilteredCourriers] = useState<Courrier[]>([])
+  const [courriers, setCourriers] = useState<any[]>([])
+  const [filteredCourriers, setFilteredCourriers] = useState<any[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+  
+  const [entities, setEntities] = useState<Entity[]>([])
+  const [types, setTypes] = useState<CourierType[]>([])
+  const [categories, setCategories] = useState<Category[]>([])
+
   const [search, setSearch] = useState("")
   const [filterState, setFilterState] = useState("all")
   const [filterType, setFilterType] = useState("all")
@@ -24,27 +30,33 @@ export default function CourriersPage() {
   const [filterEntity, setFilterEntity] = useState("all")
   const [sortBy, setSortBy] = useState("date_desc")
 
-  const entities = storage.getEntities()
-  const types = storage.getCourierTypes()
-  const categories = storage.getCategories()
-
-  useEffect(() => {
-    let allCourriers = storage.getCourriers()
-
-    // Filter by user role
-    if (user?.role === Role.AGENT && user.entityId) {
-      allCourriers = allCourriers.filter((c) => c.toEntity === user.entityId || c.createdBy === user.id)
-    } else if (user?.role === Role.CHEF && user.entityId) {
-      allCourriers = allCourriers.filter(
-        (c) => c.toEntity === user.entityId || entities.find((e) => e.id === user.entityId)?.id === c.toEntity,
-      )
+  const loadData = useCallback(async () => {
+    setIsLoading(true)
+    try {
+      const [courriersRes, entitiesRes, typesRes, categoriesRes] = await Promise.all([
+        api.getCouriers({ limit: 50 }),
+        api.getEntities(),
+        api.getTypes(),
+        api.getCategories(),
+      ])
+      
+      setCourriers(courriersRes.data || [])
+      setEntities(entitiesRes)
+      setTypes(typesRes)
+      setCategories(categoriesRes)
+    } catch (error) {
+      console.error("Erreur chargement courriers:", error)
+    } finally {
+      setIsLoading(false)
     }
-
-    setCourriers(allCourriers)
-  }, [user])
+  }, [])
 
   useEffect(() => {
-    let filtered = courriers
+    loadData()
+  }, [loadData])
+
+  useEffect(() => {
+    let filtered = [...courriers]
 
     // Text search
     if (search) {
@@ -52,7 +64,7 @@ export default function CourriersPage() {
         (c) =>
           c.reference.toLowerCase().includes(search.toLowerCase()) ||
           c.subject.toLowerCase().includes(search.toLowerCase()) ||
-          c.description.toLowerCase().includes(search.toLowerCase()),
+          (c.description && c.description.toLowerCase().includes(search.toLowerCase())),
       )
     }
 
@@ -63,12 +75,12 @@ export default function CourriersPage() {
 
     // Filter by type
     if (filterType !== "all") {
-      filtered = filtered.filter((c) => c.type === filterType)
+      filtered = filtered.filter((c) => c.typeId === filterType)
     }
 
     // Filter by category
     if (filterCategory !== "all") {
-      filtered = filtered.filter((c) => c.category === filterCategory)
+      filtered = filtered.filter((c) => c.categoryId === filterCategory)
     }
 
     // Filter by priority
@@ -78,7 +90,7 @@ export default function CourriersPage() {
 
     // Filter by entity
     if (filterEntity !== "all") {
-      filtered = filtered.filter((c) => c.toEntity === filterEntity)
+      filtered = filtered.filter((c) => c.toEntityId === filterEntity)
     }
 
     // Sort
@@ -90,7 +102,7 @@ export default function CourriersPage() {
         filtered.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
         break
       case "priority":
-        const priorityOrder = { very_urgent: 0, urgent: 1, normal: 2 }
+        const priorityOrder = { VERY_URGENT: 0, URGENT: 1, NORMAL: 2 }
         filtered.sort(
           (a, b) =>
             (priorityOrder[a.priority as keyof typeof priorityOrder] || 3) -
@@ -102,9 +114,41 @@ export default function CourriersPage() {
     setFilteredCourriers(filtered)
   }, [courriers, search, filterState, filterType, filterCategory, filterPriority, filterEntity, sortBy])
 
-  const getEntityLabel = (id: string | undefined) => {
-    if (!id) return "Non assigné"
-    return entities.find((e) => e.id === id)?.label || "Inconnu"
+  const handleDelete = async (id: string) => {
+    if (confirm("Êtes-vous sûr de vouloir supprimer ce courrier ?")) {
+      try {
+        await api.deleteCourier(id)
+        loadData()
+      } catch (error: any) {
+        alert(error.message || "Erreur lors de la suppression")
+      }
+    }
+  }
+
+  const handleExportCSV = () => {
+    const csv = [
+      ["Référence", "Sujet", "Type", "Catégorie", "État", "Priorité", "Destination", "Date", "Créé par"],
+      ...filteredCourriers.map((c) => [
+        c.reference,
+        c.subject,
+        c.type?.label || 'N/A',
+        c.category?.label || 'N/A',
+        c.state,
+        c.priority,
+        c.toEntity?.label || 'N/A',
+        new Date(c.createdAt).toLocaleDateString(),
+        c.createdBy?.name || 'N/A',
+      ]),
+    ]
+      .map((row) => row.map((cell) => `"${cell}"`).join(","))
+      .join("\n")
+
+    const blob = new Blob([csv], { type: "text/csv" })
+    const url = window.URL.createObjectURL(blob)
+    const a = document.createElement("a")
+    a.href = url
+    a.download = `courriers_${new Date().toISOString().split("T")[0]}.csv`
+    a.click()
   }
 
   const getStateColor = (state: CourierState) => {
@@ -146,39 +190,6 @@ export default function CourriersPage() {
       default:
         return "!"
     }
-  }
-
-  const handleDelete = (id: string) => {
-    if (confirm("Êtes-vous sûr de vouloir supprimer ce courrier ?")) {
-      storage.deleteCourrier(id)
-      setCourriers(storage.getCourriers())
-    }
-  }
-
-  const handleExportCSV = () => {
-    const csv = [
-      ["Référence", "Sujet", "Type", "Catégorie", "État", "Priorité", "Destination", "Date", "Créé par"],
-      ...filteredCourriers.map((c) => [
-        c.reference,
-        c.subject,
-        c.type,
-        c.category,
-        c.state,
-        c.priority,
-        getEntityLabel(c.toEntity),
-        new Date(c.createdAt).toLocaleDateString(),
-        c.createdBy,
-      ]),
-    ]
-      .map((row) => row.map((cell) => `"${cell}"`).join(","))
-      .join("\n")
-
-    const blob = new Blob([csv], { type: "text/csv" })
-    const url = window.URL.createObjectURL(blob)
-    const a = document.createElement("a")
-    a.href = url
-    a.download = `courriers_${new Date().toISOString().split("T")[0]}.csv`
-    a.click()
   }
 
   return (
@@ -304,7 +315,7 @@ export default function CourriersPage() {
               </Select>
             </div>
           </div>
-          {(filterState !== "all" || search || filterType !== "all") && (
+          {(filterState !== "all" || search !== "" || filterType !== "all" || filterCategory !== "all" || filterPriority !== "all") && (
             <Button
               variant="outline"
               size="sm"
@@ -314,6 +325,7 @@ export default function CourriersPage() {
                 setFilterType("all")
                 setFilterCategory("all")
                 setFilterPriority("all")
+                setFilterEntity("all")
               }}
             >
               Réinitialiser les filtres
@@ -331,6 +343,12 @@ export default function CourriersPage() {
           </CardTitle>
         </CardHeader>
         <CardContent>
+          {isLoading ? (
+             <div className="flex flex-col items-center justify-center py-12 gap-4">
+               <Loader2 className="w-8 h-8 animate-spin text-primary" />
+               <p className="text-muted-foreground">Chargement des courriers...</p>
+             </div>
+          ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="border-b bg-muted/50">
@@ -359,7 +377,7 @@ export default function CourriersPage() {
                       <td className="py-3 px-4">
                         <div className="max-w-xs truncate text-sm">{courrier.subject}</div>
                       </td>
-                      <td className="py-3 px-4 text-xs">{courrier.type}</td>
+                      <td className="py-3 px-4 text-xs">{courrier.type?.label}</td>
                       <td className="py-3 px-4">
                         <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStateColor(courrier.state)}`}>
                           {courrier.state}
@@ -370,7 +388,7 @@ export default function CourriersPage() {
                           {getPriorityIcon(courrier.priority)}
                         </span>
                       </td>
-                      <td className="py-3 px-4 text-xs">{getEntityLabel(courrier.toEntity)}</td>
+                      <td className="py-3 px-4 text-xs">{courrier.toEntity?.label}</td>
                       <td className="py-3 px-4 text-xs whitespace-nowrap">
                         {new Date(courrier.createdAt).toLocaleDateString()}
                       </td>
@@ -382,9 +400,11 @@ export default function CourriersPage() {
                             </Button>
                           </Link>
                           {user?.role === Role.AGENT || user?.role === Role.ADMIN || user?.role === Role.SUPER_ADMIN ? (
-                            <Button variant="ghost" size="sm" className="hover:bg-orange-100">
-                              <Edit2 className="w-4 h-4 text-orange-600" />
-                            </Button>
+                            <Link href={`/courriers/${courrier.id}?edit=true`}>
+                              <Button variant="ghost" size="sm" className="hover:bg-orange-100">
+                                <Edit2 className="w-4 h-4 text-orange-600" />
+                              </Button>
+                            </Link>
                           ) : null}
                           {user?.role === Role.SUPER_ADMIN || user?.role === Role.ADMIN ? (
                             <Button
@@ -404,10 +424,12 @@ export default function CourriersPage() {
               </tbody>
             </table>
           </div>
+          )}
         </CardContent>
       </Card>
 
       {/* Statistics */}
+      {!isLoading && (
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <Card>
           <CardHeader className="pb-2">
@@ -451,6 +473,7 @@ export default function CourriersPage() {
           </CardContent>
         </Card>
       </div>
+      )}
     </div>
   )
 }
