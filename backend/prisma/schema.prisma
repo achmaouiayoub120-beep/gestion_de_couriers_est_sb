@@ -1,0 +1,159 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── ENUMS ──────────────────────────────────────────────────
+
+enum Role {
+  SUPER_ADMIN
+  ADMIN
+  CHEF
+  AGENT
+  AUDITOR
+}
+
+enum CourierState {
+  NEW
+  IN_PROGRESS
+  TREATED
+  REJECTED
+  ARCHIVED
+}
+
+enum Priority {
+  NORMAL
+  URGENT
+  VERY_URGENT
+}
+
+// ─── MODELS ─────────────────────────────────────────────────
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String
+  password  String
+  role      Role     @default(AGENT)
+  entityId  String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  entity          Entity?        @relation("EntityUsers", fields: [entityId], references: [id])
+  chefOf          Entity[]       @relation("EntityChef")
+  createdCouriers Courier[]      @relation("CreatedBy")
+  stateHistories  StateHistory[] @relation("ChangedBy")
+
+  @@index([email])
+  @@index([entityId])
+}
+
+model Entity {
+  id             String   @id @default(cuid())
+  label          String
+  description    String?
+  code           String   @unique
+  email          String?
+  phone          String?
+  parentEntityId String?
+  chefId         String?
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  parent           Entity?   @relation("EntityHierarchy", fields: [parentEntityId], references: [id])
+  children         Entity[]  @relation("EntityHierarchy")
+  chef             User?     @relation("EntityChef", fields: [chefId], references: [id])
+  users            User[]    @relation("EntityUsers")
+  sentCouriers     Courier[] @relation("FromEntity")
+  receivedCouriers Courier[] @relation("ToEntity")
+
+  @@index([code])
+}
+
+model Category {
+  id          String    @id @default(cuid())
+  label       String    @unique
+  description String?
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  couriers    Courier[]
+}
+
+model CourierType {
+  id          String    @id @default(cuid())
+  label       String    @unique
+  description String?
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  couriers    Courier[]
+}
+
+model RefState {
+  id          String   @id @default(cuid())
+  label       String   @unique
+  description String?
+  color       String?
+  createdAt   DateTime @default(now())
+}
+
+model Courier {
+  id           String       @id @default(cuid())
+  reference    String       @unique
+  subject      String
+  description  String?
+  fromEntityId String?
+  toEntityId   String
+  categoryId   String
+  typeId       String
+  priority     Priority     @default(NORMAL)
+  state        CourierState @default(NEW)
+  createdById  String
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  fromEntity  Entity?        @relation("FromEntity", fields: [fromEntityId], references: [id])
+  toEntity    Entity         @relation("ToEntity", fields: [toEntityId], references: [id])
+  category    Category       @relation(fields: [categoryId], references: [id])
+  type        CourierType    @relation(fields: [typeId], references: [id])
+  createdBy   User           @relation("CreatedBy", fields: [createdById], references: [id])
+  attachments Attachment[]
+  history     StateHistory[]
+
+  @@index([state])
+  @@index([toEntityId])
+  @@index([createdById])
+  @@index([createdAt])
+}
+
+model Attachment {
+  id         String   @id @default(cuid())
+  name       String
+  fileUrl    String
+  publicId   String?
+  fileType   String?
+  fileSize   Int?
+  courierId  String
+  uploadedAt DateTime @default(now())
+
+  courier Courier @relation(fields: [courierId], references: [id], onDelete: Cascade)
+}
+
+model StateHistory {
+  id          String       @id @default(cuid())
+  courierId   String
+  state       CourierState
+  changedById String
+  notes       String?
+  changedAt   DateTime     @default(now())
+
+  courier   Courier @relation(fields: [courierId], references: [id], onDelete: Cascade)
+  changedBy User    @relation("ChangedBy", fields: [changedById], references: [id])
+
+  @@index([courierId])
+}
